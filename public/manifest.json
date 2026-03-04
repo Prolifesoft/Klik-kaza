@@ -1,0 +1,21 @@
+{
+  "name": "Klik & Kazan",
+  "short_name": "KlikKazan",
+  "description": "Reklam izleyerek kredi kazanma ve USDT olarak çekme platformu.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "https://api.dicebear.com/7.x/shapes/svg?seed=KlikKazan",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "https://api.dicebear.com/7.x/shapes/svg?seed=KlikKazan",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

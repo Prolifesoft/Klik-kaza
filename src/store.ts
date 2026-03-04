@@ -11,7 +11,24 @@ interface User {
   available_credits: number;
   daily_click_limit: number;
   tron_wallet: string | null;
+  referral_code: string | null;
+  kyc_status: 'unverified' | 'pending' | 'approved' | 'rejected';
+  total_clicks: number;
   today_clicks?: number;
+  level_info?: {
+    level: number;
+    name: string;
+    required_clicks: number;
+    multiplier: number;
+    bonus_limit: number;
+  };
+  next_level_info?: {
+    level: number;
+    name: string;
+    required_clicks: number;
+    multiplier: number;
+    bonus_limit: number;
+  } | null;
 }
 
 interface AuthState {

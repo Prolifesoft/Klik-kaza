@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useAuthStore } from '../store';
-import { Wallet, ArrowRight, AlertCircle } from 'lucide-react';
+import { Wallet, ArrowRight, AlertCircle, ShieldAlert } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export function Withdraw() {
   const { user, setUser } = useAuthStore();
@@ -48,6 +49,23 @@ export function Withdraw() {
       setLoading(false);
     }
   };
+
+  if (user?.kyc_status !== 'approved') {
+    return (
+      <div className="max-w-xl mx-auto mt-12 text-center">
+        <div className="w-20 h-20 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-6">
+          <ShieldAlert className="w-10 h-10" />
+        </div>
+        <h2 className="text-2xl font-bold text-zinc-900 mb-4">KYC Onayı Gerekiyor</h2>
+        <p className="text-zinc-500 mb-8">
+          Para çekme işlemi yapabilmek için öncelikle kimlik doğrulama (KYC) işlemini tamamlamanız gerekmektedir.
+        </p>
+        <Link to="/kyc" className="inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold transition-colors">
+          KYC Sayfasına Git <ArrowRight className="w-5 h-5" />
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -1,13 +1,29 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { Home, PlaySquare, PlusCircle, Wallet, Settings, LogOut, ShieldAlert } from 'lucide-react';
+import { Home, PlaySquare, PlusCircle, Wallet, Settings, LogOut, ShieldAlert, Users, ShieldCheck, Globe, Bell } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { useTranslation } from 'react-i18next';
+import { useState, useEffect } from 'react';
 
 export function Layout() {
   const { user, logout } = useAuthStore();
   const location = useLocation();
   const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (user) {
+      fetch(`/api/users/${user.id}/notifications`)
+        .then(res => res.json())
+        .then(data => {
+          const unread = data.filter((n: any) => !n.is_read).length;
+          setUnreadCount(unread);
+        })
+        .catch(console.error);
+    }
+  }, [user, location.pathname]); // Refresh when route changes
 
   const handleLogout = () => {
     logout();
@@ -15,14 +31,18 @@ export function Layout() {
   };
 
   const navItems = [
-    { name: 'Dashboard', path: '/', icon: Home },
-    { name: 'Reklamlar', path: '/ads', icon: PlaySquare },
-    { name: 'Kampanyalar', path: '/campaigns', icon: PlusCircle },
-    { name: 'Para Çek', path: '/withdraw', icon: Wallet },
+    { name: t('nav.dashboard'), path: '/', icon: Home },
+    { name: t('nav.ads'), path: '/ads', icon: PlaySquare },
+    { name: t('nav.campaigns'), path: '/campaigns', icon: PlusCircle },
+    { name: t('nav.withdraw'), path: '/withdraw', icon: Wallet },
+    { name: t('nav.referrals'), path: '/referrals', icon: Users },
+    { name: t('nav.kyc'), path: '/kyc', icon: ShieldCheck },
+    { name: 'Bildirimler', path: '/notifications', icon: Bell, badge: unreadCount },
+    { name: t('nav.settings'), path: '/settings', icon: Settings },
   ];
 
   if (user?.role === 'admin') {
-    navItems.push({ name: 'Admin', path: '/admin', icon: ShieldAlert });
+    navItems.push({ name: t('nav.admin'), path: '/admin', icon: ShieldAlert });
   }
 
   return (
@@ -46,21 +66,42 @@ export function Layout() {
                 to={item.path}
                 className={twMerge(
                   clsx(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors',
+                    'flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors',
                     isActive
                       ? 'bg-emerald-50 text-emerald-700'
                       : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                   )
                 )}
               >
-                <Icon className={clsx('w-5 h-5', isActive ? 'text-emerald-600' : 'text-zinc-400')} />
-                {item.name}
+                <div className="flex items-center gap-3">
+                  <Icon className={clsx('w-5 h-5', isActive ? 'text-emerald-600' : 'text-zinc-400')} />
+                  {item.name}
+                </div>
+                {item.badge !== undefined && item.badge > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}
         </nav>
 
         <div className="mt-auto pt-4 border-t border-zinc-200">
+          <div className="px-3 py-2 mb-2 flex items-center gap-2">
+            <Globe className="w-4 h-4 text-zinc-400" />
+            <select 
+              value={i18n.language} 
+              onChange={(e) => i18n.changeLanguage(e.target.value)}
+              className="bg-transparent text-sm font-medium text-zinc-600 outline-none cursor-pointer hover:text-zinc-900 transition-colors"
+            >
+              <option value="tr">Türkçe</option>
+              <option value="en">English</option>
+              <option value="ar">العربية</option>
+              <option value="ru">Русский</option>
+            </select>
+          </div>
+
           <div className="px-3 py-2 flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-full bg-zinc-200 flex items-center justify-center text-zinc-600 font-bold">
               {user?.username.charAt(0).toUpperCase()}
@@ -75,7 +116,7 @@ export function Layout() {
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
           >
             <LogOut className="w-5 h-5" />
-            Çıkış Yap
+            {t('nav.logout')}
           </button>
         </div>
       </aside>
@@ -98,12 +139,17 @@ export function Layout() {
               to={item.path}
               className={twMerge(
                 clsx(
-                  'flex flex-col items-center gap-1 p-2 rounded-lg min-w-[64px]',
+                  'flex flex-col items-center gap-1 p-2 rounded-lg min-w-[64px] relative',
                   isActive ? 'text-emerald-600' : 'text-zinc-500'
                 )
               )}
             >
               <Icon className="w-6 h-6" />
+              {item.badge !== undefined && item.badge > 0 && (
+                <span className="absolute top-1 right-2 bg-red-500 text-white text-[8px] font-bold w-4 h-4 flex items-center justify-center rounded-full">
+                  {item.badge}
+                </span>
+              )}
               <span className="text-[10px] font-medium">{item.name}</span>
             </Link>
           );

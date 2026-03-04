@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../store';
 import { PlusCircle, Link as LinkIcon, DollarSign, Clock } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export function Campaigns() {
   const { user, setUser } = useAuthStore();
@@ -12,6 +13,7 @@ export function Campaigns() {
   const [minViewSeconds, setMinViewSeconds] = useState(5);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const [loading, setLoading] = useState(false);
+  const { t } = useTranslation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +65,7 @@ export function Campaigns() {
   return (
     <div className="space-y-6">
       <header className="mb-8">
-        <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">Kampanya Oluştur</h1>
+        <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">{t('nav.campaigns')}</h1>
         <p className="text-zinc-500 mt-1">Kendi reklamınızı verin ve binlerce kişiye ulaşın</p>
       </header>
 
