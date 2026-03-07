@@ -9,6 +9,7 @@ export function Admin() {
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [kycDocs, setKycDocs] = useState<any[]>([]);
+  const [levels, setLevels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Notification state
@@ -27,9 +28,7 @@ export function Admin() {
     title: '',
     description: '',
     iframe_code: '',
-    credits_per_click: 1,
-    total_budget: 1000,
-    min_view_seconds: 10
+    credits_per_click: 1
   });
   const [addingIframe, setAddingIframe] = useState(false);
 
@@ -40,18 +39,20 @@ export function Admin() {
 
   const fetchData = async () => {
     setLoading(true);
-    const [statsRes, adsRes, withRes, usersRes, kycRes] = await Promise.all([
+    const [statsRes, adsRes, withRes, usersRes, kycRes, levelsRes] = await Promise.all([
       fetch('/api/stats').then(r => r.json()),
       fetch('/api/admin/ads').then(r => r.json()),
       fetch('/api/admin/withdrawals').then(r => r.json()),
       fetch('/api/admin/users').then(r => r.json()),
-      fetch('/api/admin/kyc').then(r => r.json())
+      fetch('/api/admin/kyc').then(r => r.json()),
+      fetch('/api/admin/levels').then(r => r.json())
     ]);
     setStats(statsRes);
     setAds(adsRes);
     setWithdrawals(withRes);
     setUsers(usersRes);
     setKycDocs(kycRes);
+    setLevels(levelsRes);
     setLoading(false);
   };
 
@@ -148,13 +149,14 @@ export function Admin() {
         body: JSON.stringify({
           advertiser_id: user?.id,
           type: 'iframe',
+          total_budget: 999999999, // Sınırsız bütçe varsayımı
           ...iframeData
         })
       });
       if (res.ok) {
         alert('İframe görevi başarıyla eklendi!');
         setShowIframeModal(false);
-        setIframeData({ title: '', description: '', iframe_code: '', credits_per_click: 1, total_budget: 1000, min_view_seconds: 10 });
+        setIframeData({ title: '', description: '', iframe_code: '', credits_per_click: 1 });
         fetchData();
       } else {
         const data = await res.json();
@@ -170,6 +172,29 @@ export function Admin() {
   if (user?.role !== 'admin') {
     return <div className="p-8 text-center text-red-600 font-bold">Yetkisiz Erişim</div>;
   }
+
+  const updateLevel = async (level: number, field: string, value: any) => {
+    const currentLevel = levels.find(l => l.level === level);
+    if (!currentLevel) return;
+    
+    const updatedLevel = { ...currentLevel, [field]: value };
+    
+    try {
+      const res = await fetch(`/api/admin/levels/${level}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedLevel)
+      });
+      
+      if (res.ok) {
+        fetchData();
+      } else {
+        alert('Seviye güncellenirken bir hata oluştu.');
+      }
+    } catch (error) {
+      console.error('Error updating level:', error);
+    }
+  };
 
   if (loading) return <div className="p-8 text-center text-zinc-500">Yükleniyor...</div>;
 
@@ -233,6 +258,67 @@ export function Admin() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Levels Management */}
+        <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 overflow-hidden lg:col-span-2">
+          <div className="p-6 border-b border-zinc-100 bg-zinc-50">
+            <h2 className="text-xl font-bold text-zinc-900">Seviye ve Bekleme Süresi Ayarları</h2>
+            <p className="text-sm text-zinc-500 mt-1">Kullanıcı seviyelerinin reklam izleme bekleme sürelerini (dakika) ve diğer özelliklerini buradan ayarlayabilirsiniz.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-zinc-50 text-zinc-500 border-b border-zinc-100">
+                <tr>
+                  <th className="p-4 font-medium">Seviye</th>
+                  <th className="p-4 font-medium">İsim</th>
+                  <th className="p-4 font-medium">Gerekli Tıklama</th>
+                  <th className="p-4 font-medium">Çarpan</th>
+                  <th className="p-4 font-medium">Bekleme Süresi (Dk)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {levels.map(l => (
+                  <tr key={l.level} className="hover:bg-zinc-50/50">
+                    <td className="p-4 font-medium text-zinc-900">{l.level}</td>
+                    <td className="p-4">
+                      <input 
+                        type="text" 
+                        value={l.name} 
+                        onChange={(e) => updateLevel(l.level, 'name', e.target.value)}
+                        className="w-full px-2 py-1 rounded border border-zinc-200 focus:outline-none focus:border-blue-500"
+                      />
+                    </td>
+                    <td className="p-4">
+                      <input 
+                        type="number" 
+                        value={l.required_clicks} 
+                        onChange={(e) => updateLevel(l.level, 'required_clicks', parseInt(e.target.value))}
+                        className="w-full px-2 py-1 rounded border border-zinc-200 focus:outline-none focus:border-blue-500"
+                      />
+                    </td>
+                    <td className="p-4">
+                      <input 
+                        type="number" 
+                        step="0.1"
+                        value={l.multiplier} 
+                        onChange={(e) => updateLevel(l.level, 'multiplier', parseFloat(e.target.value))}
+                        className="w-full px-2 py-1 rounded border border-zinc-200 focus:outline-none focus:border-blue-500"
+                      />
+                    </td>
+                    <td className="p-4">
+                      <input 
+                        type="number" 
+                        value={l.ad_cooldown_minutes} 
+                        onChange={(e) => updateLevel(l.level, 'ad_cooldown_minutes', parseInt(e.target.value))}
+                        className="w-full px-2 py-1 rounded border border-zinc-200 focus:outline-none focus:border-blue-500"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {/* Users Management */}
         <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 overflow-hidden lg:col-span-2">
           <div className="p-6 border-b border-zinc-100 bg-zinc-50">
@@ -570,7 +656,7 @@ export function Admin() {
                 ></textarea>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-zinc-700 mb-1">Tık Başı Kredi</label>
                   <input
@@ -583,29 +669,6 @@ export function Admin() {
                     className="w-full px-4 py-2 rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-zinc-700 mb-1">Toplam Bütçe</label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    value={iframeData.total_budget}
-                    onChange={(e) => setIframeData({...iframeData, total_budget: parseFloat(e.target.value)})}
-                    className="w-full px-4 py-2 rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 mb-1">Bekleme Süresi (Saniye)</label>
-                <input
-                  type="number"
-                  required
-                  min="1"
-                  value={iframeData.min_view_seconds}
-                  onChange={(e) => setIframeData({...iframeData, min_view_seconds: parseInt(e.target.value)})}
-                  className="w-full px-4 py-2 rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                />
               </div>
               
               <div className="pt-4 flex justify-end gap-3">

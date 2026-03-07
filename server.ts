@@ -99,24 +99,30 @@ try {
   // Column might already exist
 }
 
+try {
+  db.exec("ALTER TABLE level_definitions ADD COLUMN ad_cooldown_minutes INTEGER DEFAULT 20");
+} catch (e) {
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS level_definitions (
     level INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     required_clicks INTEGER NOT NULL,
     multiplier REAL NOT NULL,
-    bonus_limit INTEGER NOT NULL
+    bonus_limit INTEGER NOT NULL,
+    ad_cooldown_minutes INTEGER DEFAULT 20
   );
 `);
 
 // Seed level definitions
 db.exec(`
-  INSERT OR IGNORE INTO level_definitions (level, name, required_clicks, multiplier, bonus_limit) VALUES 
-  (1, 'Bronz', 0, 1.0, 0),
-  (2, 'Gümüş', 500, 1.1, 5),
-  (3, 'Altın', 2000, 1.25, 10),
-  (4, 'Platin', 5000, 1.5, 20),
-  (5, 'Elmas', 10000, 2.0, 50);
+  INSERT OR IGNORE INTO level_definitions (level, name, required_clicks, multiplier, bonus_limit, ad_cooldown_minutes) VALUES 
+  (1, 'Bronz', 0, 1.0, 0, 20),
+  (2, 'Gümüş', 500, 1.1, 5, 15),
+  (3, 'Altın', 2000, 1.25, 10, 10),
+  (4, 'Platin', 5000, 1.5, 20, 5),
+  (5, 'Elmas', 10000, 2.0, 50, 1);
 `);
 
 db.exec(`
@@ -318,6 +324,27 @@ async function startServer() {
     res.json(users);
   });
 
+  app.get('/api/admin/levels', (req, res) => {
+    const levels = db.prepare("SELECT * FROM level_definitions ORDER BY level ASC").all();
+    res.json(levels);
+  });
+
+  app.put('/api/admin/levels/:level', (req, res) => {
+    const { name, required_clicks, multiplier, bonus_limit, ad_cooldown_minutes } = req.body;
+    const level = req.params.level;
+    
+    try {
+      db.prepare(`
+        UPDATE level_definitions 
+        SET name = ?, required_clicks = ?, multiplier = ?, bonus_limit = ?, ad_cooldown_minutes = ?
+        WHERE level = ?
+      `).run(name, required_clicks, multiplier, bonus_limit, ad_cooldown_minutes, level);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post('/api/admin/users/:id/credits', (req, res) => {
     const { amount, type } = req.body;
     const userId = req.params.id;
@@ -411,7 +438,7 @@ async function startServer() {
       type || 'url', 
       credits_per_click, 
       total_budget, 
-      min_view_seconds,
+      min_view_seconds || 10,
       user.role === 'admin' ? 'active' : 'pending' // Auto-approve admin ads
     );
     
@@ -429,6 +456,30 @@ async function startServer() {
   app.post('/api/ads/:id/start', (req, res) => {
     const { user_id } = req.body;
     const ad_id = req.params.id;
+    
+    // Check global cooldown
+    const user = db.prepare("SELECT level FROM users WHERE id = ?").get(user_id) as any;
+    if (user) {
+      const levelDef = db.prepare("SELECT ad_cooldown_minutes FROM level_definitions WHERE level = ?").get(user.level) as any;
+      const cooldownMinutes = levelDef?.ad_cooldown_minutes || 20;
+      
+      const lastClick = db.prepare("SELECT clicked_at FROM ad_clicks WHERE user_id = ? ORDER BY clicked_at DESC LIMIT 1").get(user_id) as any;
+      
+      if (lastClick) {
+        const lastClickTime = new Date(lastClick.clicked_at + 'Z').getTime();
+        const now = Date.now();
+        const diffMinutes = (now - lastClickTime) / (1000 * 60);
+        
+        if (diffMinutes < cooldownMinutes) {
+          const remainingSeconds = Math.ceil((cooldownMinutes - diffMinutes) * 60);
+          const m = Math.floor(remainingSeconds / 60);
+          const s = remainingSeconds % 60;
+          const timeStr = m > 0 ? `${m} dk ${s} sn` : `${s} sn`;
+          return res.status(400).json({ success: false, message: `${timeStr} sonra tekrar gel`, remainingSeconds });
+        }
+      }
+    }
+
     activeAdSessions.set(`${user_id}_${ad_id}`, Date.now());
     res.json({ success: true });
   });

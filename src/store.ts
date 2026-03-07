@@ -21,6 +21,7 @@ interface User {
     required_clicks: number;
     multiplier: number;
     bonus_limit: number;
+    ad_cooldown_minutes: number;
   };
   next_level_info?: {
     level: number;
