@@ -28,6 +28,9 @@ export function Notifications() {
   const fetchNotifications = async () => {
     try {
       const res = await fetch(`/api/users/${user?.id}/notifications`);
+      if (!res.ok) {
+        throw new Error('Failed to fetch notifications');
+      }
       const data = await res.json();
       setNotifications(data);
     } catch (error) {

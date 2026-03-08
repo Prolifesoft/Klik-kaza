@@ -16,7 +16,10 @@ export function Layout() {
   useEffect(() => {
     if (user) {
       fetch(`/api/users/${user.id}/notifications`)
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok) throw new Error('Failed to fetch notifications');
+          return res.json();
+        })
         .then(data => {
           const unread = data.filter((n: any) => !n.is_read).length;
           setUnreadCount(unread);

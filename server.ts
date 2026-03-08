@@ -140,6 +140,19 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    type TEXT DEFAULT 'info',
+    is_read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+`);
+
 // Create a default admin user if none exists
 const adminExists = db.prepare("SELECT * FROM users WHERE role = 'admin'").get();
 if (!adminExists) {
@@ -546,18 +559,30 @@ async function startServer() {
 
   // Notifications
   app.get('/api/users/:id/notifications', (req, res) => {
-    const notifications = db.prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC").all(req.params.id);
-    res.json(notifications);
+    try {
+      const notifications = db.prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC").all(req.params.id);
+      res.json(notifications);
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
   });
 
   app.put('/api/notifications/:id/read', (req, res) => {
-    db.prepare("UPDATE notifications SET is_read = 1 WHERE id = ?").run(req.params.id);
-    res.json({ success: true });
+    try {
+      db.prepare("UPDATE notifications SET is_read = 1 WHERE id = ?").run(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
   });
 
   app.put('/api/users/:id/notifications/read-all', (req, res) => {
-    db.prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?").run(req.params.id);
-    res.json({ success: true });
+    try {
+      db.prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?").run(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
   });
 
   // Withdrawals
