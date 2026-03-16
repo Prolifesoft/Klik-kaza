@@ -104,6 +104,26 @@ try {
 } catch (e) {
 }
 
+try {
+  db.exec("ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0");
+} catch (e) {
+}
+
+try {
+  db.exec("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0");
+} catch (e) {
+}
+
+try {
+  db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0");
+} catch (e) {
+}
+
+try {
+  db.exec("ALTER TABLE users ADD COLUMN email_verification_code TEXT");
+} catch (e) {
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS level_definitions (
     level INTEGER PRIMARY KEY,
@@ -113,7 +133,41 @@ db.exec(`
     bonus_limit INTEGER NOT NULL,
     ad_cooldown_minutes INTEGER DEFAULT 20
   );
+
+  CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    amount REAL NOT NULL,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS campaign_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cpc REAL DEFAULT 0.5,
+    budget_bonus_step INTEGER DEFAULT 100,
+    budget_bonus_rate REAL DEFAULT 2.0,
+    duration_discount_step INTEGER DEFAULT 7,
+    duration_discount_rate REAL DEFAULT 5.0
+  );
 `);
+
+try {
+  db.prepare("ALTER TABLE campaign_settings ADD COLUMN impression_multiplier INTEGER DEFAULT 10").run();
+} catch (e) {
+  // Column might already exist, ignore
+}
+
+// Seed campaign settings
+const settingsCount = db.prepare("SELECT COUNT(*) as count FROM campaign_settings").get() as any;
+if (settingsCount.count === 0) {
+  db.prepare(`
+    INSERT INTO campaign_settings (cpc, budget_bonus_step, budget_bonus_rate, duration_discount_step, duration_discount_rate, impression_multiplier)
+    VALUES (0.5, 100, 2.0, 7, 5.0, 10)
+  `).run();
+}
 
 // Seed level definitions
 db.exec(`
@@ -196,11 +250,14 @@ async function startServer() {
   // Auth
   app.post('/api/auth/login', (req, res) => {
     const { email, password } = req.body;
-    const user = db.prepare("SELECT * FROM users WHERE email = ? AND password = ?").get(email, password);
+    const user = db.prepare("SELECT * FROM users WHERE email = ? AND password = ?").get(email, password) as any;
     if (user) {
+      if (user.is_banned) {
+        return res.status(403).json({ success: false, message: 'Hesabınız yasaklanmıştır. Lütfen destek ile iletişime geçin.' });
+      }
       res.json({ success: true, user });
     } else {
-      res.status(401).json({ success: false, message: 'Invalid credentials' });
+      res.status(401).json({ success: false, message: 'Geçersiz e-posta veya şifre' });
     }
   });
 
@@ -275,37 +332,46 @@ async function startServer() {
     res.json(earnings);
   });
 
-  app.get('/api/users/:id/kyc', (req, res) => {
-    const kyc = db.prepare("SELECT * FROM kyc_documents WHERE user_id = ?").get(req.params.id);
-    res.json(kyc || null);
+  app.post('/api/users/:id/send-verification', (req, res) => {
+    const userId = req.params.id;
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as any;
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Kullanıcı bulunamadı' });
+    }
+    
+    // Generate a 6-digit code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    db.prepare("UPDATE users SET email_verification_code = ? WHERE id = ?").run(code, userId);
+    
+    // In a real app, send an email here. For now, we return it in the response for testing.
+    res.json({ success: true, message: 'Doğrulama kodu e-posta adresinize gönderildi.', code });
   });
 
-  app.post('/api/users/:id/kyc', (req, res) => {
-    const { document_type, front_image, back_image, selfie_image } = req.body;
+  app.post('/api/users/:id/verify-email', (req, res) => {
     const userId = req.params.id;
+    const { code } = req.body;
     
-    const transaction = db.transaction(() => {
-      db.prepare(`
-        INSERT INTO kyc_documents (user_id, document_type, front_image, back_image, selfie_image, status)
-        VALUES (?, ?, ?, ?, ?, 'pending')
-        ON CONFLICT(user_id) DO UPDATE SET
-          document_type=excluded.document_type,
-          front_image=excluded.front_image,
-          back_image=excluded.back_image,
-          selfie_image=excluded.selfie_image,
-          status='pending',
-          rejection_reason=NULL
-      `).run(userId, document_type, front_image, back_image, selfie_image);
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as any;
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Kullanıcı bulunamadı' });
+    }
+    
+    if (user.email_verification_code === code) {
+      db.prepare("UPDATE users SET email_verified = 1, email_verification_code = NULL WHERE id = ?").run(userId);
       
-      db.prepare("UPDATE users SET kyc_status = 'pending' WHERE id = ?").run(userId);
-    });
-    
-    try {
-      transaction();
-      const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
-      res.json({ success: true, user });
-    } catch (e: any) {
-      res.status(500).json({ success: false, message: e.message });
+      // Also update referrals if needed
+      const referral = db.prepare("SELECT referrer_id FROM referrals WHERE referred_id = ? AND status = 'pending'").get(userId) as any;
+      if (referral) {
+        db.prepare("UPDATE referrals SET status = 'approved' WHERE referred_id = ?").run(userId);
+      }
+      
+      const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+      res.json({ success: true, user: updatedUser });
+    } else {
+      res.status(400).json({ success: false, message: 'Geçersiz doğrulama kodu' });
     }
   });
 
@@ -333,8 +399,58 @@ async function startServer() {
   });
 
   app.get('/api/admin/users', (req, res) => {
-    const users = db.prepare("SELECT id, email, username, role, available_credits FROM users").all();
+    const users = db.prepare("SELECT id, email, username, role, available_credits, is_banned, is_verified FROM users").all();
     res.json(users);
+  });
+
+  app.put('/api/admin/users/:id', (req, res) => {
+    const userId = req.params.id;
+    const { role, is_banned, is_verified, available_credits } = req.body;
+    
+    try {
+      const transaction = db.transaction(() => {
+        const oldUser = db.prepare("SELECT available_credits FROM users WHERE id = ?").get(userId) as any;
+        
+        db.prepare(`
+          UPDATE users 
+          SET role = ?, is_banned = ?, is_verified = ?, available_credits = ?
+          WHERE id = ?
+        `).run(role, is_banned ? 1 : 0, is_verified ? 1 : 0, available_credits, userId);
+
+        if (oldUser && oldUser.available_credits !== available_credits) {
+          const diff = available_credits - oldUser.available_credits;
+          db.prepare("INSERT INTO transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)").run(
+            userId,
+            diff > 0 ? 'admin_add' : 'admin_subtract',
+            diff,
+            'Yönetici tarafından bakiye güncellendi'
+          );
+        }
+      });
+      
+      transaction();
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to update user' });
+    }
+  });
+
+  app.delete('/api/admin/users/:id', (req, res) => {
+    const userId = req.params.id;
+    try {
+      // First delete related records
+      db.prepare("DELETE FROM ad_clicks WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM withdrawals WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM kyc_documents WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM notifications WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM referrals WHERE referrer_id = ? OR referred_id = ?").run(userId, userId);
+      
+      // Then delete user
+      db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to delete user' });
+    }
   });
 
   app.get('/api/admin/levels', (req, res) => {
@@ -362,12 +478,26 @@ async function startServer() {
     const { amount, type } = req.body;
     const userId = req.params.id;
     
-    if (type === 'add') {
-      db.prepare("UPDATE users SET available_credits = available_credits + ?, total_credits = total_credits + ? WHERE id = ?").run(amount, amount, userId);
-    } else if (type === 'subtract') {
-      db.prepare("UPDATE users SET available_credits = MAX(0, available_credits - ?) WHERE id = ?").run(amount, userId);
+    const transaction = db.transaction(() => {
+      if (type === 'add') {
+        db.prepare("UPDATE users SET available_credits = available_credits + ?, total_credits = total_credits + ? WHERE id = ?").run(amount, amount, userId);
+        db.prepare("INSERT INTO transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)").run(userId, 'admin_add', amount, 'Yönetici tarafından kredi eklendi');
+      } else if (type === 'subtract') {
+        const user = db.prepare("SELECT available_credits FROM users WHERE id = ?").get(userId) as any;
+        const actualAmount = Math.min(amount, user ? user.available_credits : 0);
+        db.prepare("UPDATE users SET available_credits = MAX(0, available_credits - ?) WHERE id = ?").run(amount, userId);
+        if (actualAmount > 0) {
+          db.prepare("INSERT INTO transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)").run(userId, 'admin_subtract', -actualAmount, 'Yönetici tarafından kredi çıkarıldı');
+        }
+      }
+    });
+
+    try {
+      transaction();
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'İşlem başarısız' });
     }
-    res.json({ success: true });
   });
 
   app.delete('/api/admin/ads/:id', (req, res) => {
@@ -377,45 +507,6 @@ async function startServer() {
     // Delete ad
     db.prepare("DELETE FROM ads WHERE id = ?").run(adId);
     res.json({ success: true });
-  });
-
-  app.get('/api/admin/kyc', (req, res) => {
-    const docs = db.prepare(`
-      SELECT k.*, u.email, u.username 
-      FROM kyc_documents k 
-      JOIN users u ON k.user_id = u.id 
-      ORDER BY k.created_at DESC
-    `).all();
-    res.json(docs);
-  });
-
-  app.put('/api/admin/kyc/:id/status', (req, res) => {
-    const { status, rejection_reason } = req.body;
-    const kycId = req.params.id;
-    
-    const transaction = db.transaction(() => {
-      db.prepare("UPDATE kyc_documents SET status = ?, rejection_reason = ? WHERE id = ?").run(status, rejection_reason || null, kycId);
-      const kyc = db.prepare("SELECT user_id FROM kyc_documents WHERE id = ?").get(kycId) as any;
-      if (kyc) {
-        db.prepare("UPDATE users SET kyc_status = ? WHERE id = ?").run(status, kyc.user_id);
-        
-        // If approved, handle referral bonus
-        if (status === 'approved') {
-          const referral = db.prepare("SELECT referrer_id FROM referrals WHERE referred_id = ? AND status = 'pending'").get(kyc.user_id) as any;
-          if (referral) {
-            db.prepare("UPDATE referrals SET status = 'approved' WHERE referred_id = ?").run(kyc.user_id);
-            db.prepare("UPDATE users SET daily_click_limit = daily_click_limit + 5 WHERE id = ?").run(referral.referrer_id);
-          }
-        }
-      }
-    });
-
-    try {
-      transaction();
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ success: false, message: e.message });
-    }
   });
 
   app.get('/api/admin/ads', (req, res) => {
@@ -429,6 +520,10 @@ async function startServer() {
     // Check if advertiser has enough credits
     const user = db.prepare("SELECT * FROM users WHERE id = ?").get(advertiser_id) as any;
     
+    if (!user || user.is_banned) {
+      return res.status(403).json({ success: false, message: 'Hesabınız yasaklanmıştır.' });
+    }
+    
     // If it's an admin creating a system ad, we can skip budget deduction if we want,
     // but let's assume admin also needs budget or we just bypass if user.role === 'admin'
     if (user.role !== 'admin') {
@@ -437,6 +532,7 @@ async function startServer() {
       }
       // Deduct credits
       db.prepare("UPDATE users SET available_credits = available_credits - ? WHERE id = ?").run(total_budget, advertiser_id);
+      db.prepare("INSERT INTO transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)").run(advertiser_id, 'spend_ad', -total_budget, 'Reklam oluşturma bedeli');
     }
 
     const result = db.prepare(`
@@ -502,6 +598,11 @@ async function startServer() {
     const { user_id } = req.body;
     const ad_id = req.params.id;
 
+    const user = db.prepare("SELECT is_banned FROM users WHERE id = ?").get(user_id) as any;
+    if (!user || user.is_banned) {
+      return res.status(403).json({ success: false, message: 'Hesabınız yasaklanmıştır.' });
+    }
+
     const sessionKey = `${user_id}_${ad_id}`;
     const startTime = activeAdSessions.get(sessionKey);
 
@@ -535,6 +636,7 @@ async function startServer() {
       db.prepare("INSERT INTO ad_clicks (ad_id, user_id, credits_earned) VALUES (?, ?, ?)").run(ad_id, user_id, earned);
       db.prepare("UPDATE ads SET spent_budget = spent_budget + ?, total_clicks = total_clicks + 1 WHERE id = ?").run(earned, ad_id);
       db.prepare("UPDATE users SET total_credits = total_credits + ?, available_credits = available_credits + ?, total_clicks = ? WHERE id = ?").run(earned, earned, newTotalClicks, user_id);
+      db.prepare("INSERT INTO transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)").run(user_id, 'earn_click', earned, `Reklam izleme kazancı (ID: ${ad_id})`);
 
       // Check level up
       const nextLevelDef = db.prepare("SELECT * FROM level_definitions WHERE required_clicks <= ? ORDER BY level DESC LIMIT 1").get(newTotalClicks) as any;
@@ -552,6 +654,30 @@ async function startServer() {
       const result = transaction();
       activeAdSessions.delete(sessionKey); // Clear session after successful claim
       res.json({ success: true, credits_earned: result.earned, leveledUp: result.leveledUp, newLevel: result.newLevel });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  // Transactions
+  app.get('/api/users/:id/transactions', (req, res) => {
+    try {
+      const transactions = db.prepare("SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC").all(req.params.id);
+      res.json(transactions);
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/transactions', (req, res) => {
+    try {
+      const transactions = db.prepare(`
+        SELECT t.*, u.username, u.email 
+        FROM transactions t 
+        JOIN users u ON t.user_id = u.id 
+        ORDER BY t.created_at DESC
+      `).all();
+      res.json(transactions);
     } catch (e: any) {
       res.status(500).json({ success: false, message: e.message });
     }
@@ -585,6 +711,30 @@ async function startServer() {
     }
   });
 
+  // Campaign Settings
+  app.get('/api/campaign-settings', (req, res) => {
+    try {
+      const settings = db.prepare("SELECT * FROM campaign_settings LIMIT 1").get();
+      res.json(settings);
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.put('/api/admin/campaign-settings', (req, res) => {
+    const { cpc, budget_bonus_step, budget_bonus_rate, duration_discount_step, duration_discount_rate, impression_multiplier } = req.body;
+    try {
+      db.prepare(`
+        UPDATE campaign_settings 
+        SET cpc = ?, budget_bonus_step = ?, budget_bonus_rate = ?, duration_discount_step = ?, duration_discount_rate = ?, impression_multiplier = ?
+        WHERE id = (SELECT id FROM campaign_settings LIMIT 1)
+      `).run(cpc, budget_bonus_step, budget_bonus_rate, duration_discount_step, duration_discount_rate, impression_multiplier || 10);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
   // Withdrawals
   app.post('/api/withdrawals', (req, res) => {
     const { user_id, amount_credits, tron_wallet } = req.body;
@@ -594,8 +744,12 @@ async function startServer() {
       return res.status(400).json({ success: false, message: 'Insufficient credits' });
     }
     
-    if (user.kyc_status !== 'approved') {
-      return res.status(403).json({ success: false, message: 'KYC onayı gereklidir' });
+    if (user.is_banned) {
+      return res.status(403).json({ success: false, message: 'Hesabınız yasaklanmıştır.' });
+    }
+    
+    if (!user.email_verified && !user.is_verified) {
+      return res.status(403).json({ success: false, message: 'E-posta onayı gereklidir' });
     }
 
     // 100 credits = 1 USDT
@@ -604,6 +758,7 @@ async function startServer() {
     const transaction = db.transaction(() => {
       db.prepare("UPDATE users SET available_credits = available_credits - ? WHERE id = ?").run(amount_credits, user_id);
       db.prepare("INSERT INTO withdrawal_requests (user_id, amount_credits, amount_usdt, tron_wallet) VALUES (?, ?, ?, ?)").run(user_id, amount_credits, amount_usdt, tron_wallet);
+      db.prepare("INSERT INTO transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)").run(user_id, 'spend_withdraw', -amount_credits, 'Para çekme talebi');
     });
 
     try {
@@ -621,8 +776,35 @@ async function startServer() {
 
   app.put('/api/admin/withdrawals/:id/status', (req, res) => {
     const { status } = req.body;
-    db.prepare("UPDATE withdrawal_requests SET status = ? WHERE id = ?").run(status, req.params.id);
-    res.json({ success: true });
+    const withdrawalId = req.params.id;
+    
+    const transaction = db.transaction(() => {
+      const withdrawal = db.prepare("SELECT * FROM withdrawal_requests WHERE id = ?").get(withdrawalId) as any;
+      
+      if (!withdrawal) {
+        throw new Error("Withdrawal request not found");
+      }
+
+      // If it's already processed, don't do anything
+      if (withdrawal.status !== 'pending') {
+        throw new Error("Withdrawal request already processed");
+      }
+
+      db.prepare("UPDATE withdrawal_requests SET status = ? WHERE id = ?").run(status, withdrawalId);
+
+      if (status === 'rejected') {
+        // Refund credits
+        db.prepare("UPDATE users SET available_credits = available_credits + ? WHERE id = ?").run(withdrawal.amount_credits, withdrawal.user_id);
+        db.prepare("INSERT INTO transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)").run(withdrawal.user_id, 'refund_withdraw', withdrawal.amount_credits, 'Reddedilen para çekme talebi iadesi');
+      }
+    });
+
+    try {
+      transaction();
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
   });
 
   app.get('/api/stats', (req, res) => {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../store';
-import { Wallet, ArrowRight, AlertCircle, ShieldAlert } from 'lucide-react';
+import { Wallet, ArrowRight, AlertCircle, Mail, CheckCircle2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export function Withdraw() {
@@ -9,6 +9,63 @@ export function Withdraw() {
   const [tronWallet, setTronWallet] = useState(user?.tron_wallet || '');
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const [loading, setLoading] = useState(false);
+  
+  // Email verification state
+  const [verificationCode, setVerificationCode] = useState('');
+  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+
+  const handleSendCode = async () => {
+    setIsSendingCode(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/users/${user?.id}/send-verification`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCodeSent(true);
+        setMessage({ type: 'success', text: 'Doğrulama kodu e-posta adresinize gönderildi.' });
+        // For testing purposes, we alert the code. In production, this would be sent via email.
+        if (data.code) {
+          alert(`TEST MODU: Doğrulama Kodunuz: ${data.code}`);
+        }
+      } else {
+        setMessage({ type: 'error', text: data.message || 'Kod gönderilemedi.' });
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Bir hata oluştu.' });
+    } finally {
+      setIsSendingCode(false);
+    }
+  };
+
+  const handleVerifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verificationCode) return;
+    
+    setIsVerifying(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/users/${user?.id}/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: verificationCode })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessage({ type: 'success', text: 'E-posta adresiniz başarıyla doğrulandı.' });
+        setUser(data.user);
+      } else {
+        setMessage({ type: 'error', text: data.message || 'Geçersiz kod.' });
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Bir hata oluştu.' });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,19 +107,61 @@ export function Withdraw() {
     }
   };
 
-  if (user?.kyc_status !== 'approved') {
+  if (!user?.email_verified && !user?.is_verified) {
     return (
       <div className="max-w-xl mx-auto mt-12 text-center">
-        <div className="w-20 h-20 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-6">
-          <ShieldAlert className="w-10 h-10" />
+        <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Mail className="w-10 h-10" />
         </div>
-        <h2 className="text-2xl font-bold text-zinc-900 mb-4">KYC Onayı Gerekiyor</h2>
+        <h2 className="text-2xl font-bold text-zinc-900 mb-4">E-posta Onayı Gerekiyor</h2>
         <p className="text-zinc-500 mb-8">
-          Para çekme işlemi yapabilmek için öncelikle kimlik doğrulama (KYC) işlemini tamamlamanız gerekmektedir.
+          Para çekme işlemi yapabilmek için öncelikle e-posta adresinizi doğrulamanız gerekmektedir.
         </p>
-        <Link to="/kyc" className="inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold transition-colors">
-          KYC Sayfasına Git <ArrowRight className="w-5 h-5" />
-        </Link>
+        
+        {message && (
+          <div className={`p-4 rounded-xl text-sm font-medium border mb-6 text-left ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
+            {message.text}
+          </div>
+        )}
+
+        {!codeSent ? (
+          <button 
+            onClick={handleSendCode}
+            disabled={isSendingCode}
+            className="inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold transition-colors disabled:opacity-50"
+          >
+            {isSendingCode ? 'Gönderiliyor...' : 'Doğrulama Kodu Gönder'} <ArrowRight className="w-5 h-5" />
+          </button>
+        ) : (
+          <form onSubmit={handleVerifyCode} className="max-w-sm mx-auto space-y-4">
+            <div>
+              <input
+                type="text"
+                placeholder="6 Haneli Kod"
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value)}
+                className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-center text-2xl tracking-widest font-mono"
+                maxLength={6}
+                required
+              />
+            </div>
+            <button 
+              type="submit"
+              disabled={isVerifying || verificationCode.length < 6}
+              className="w-full inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold transition-colors disabled:opacity-50"
+            >
+              {isVerifying ? 'Doğrulanıyor...' : 'Doğrula'} <CheckCircle2 className="w-5 h-5" />
+            </button>
+            <button 
+              type="button"
+              onClick={handleSendCode}
+              disabled={isSendingCode}
+              className="text-sm text-emerald-600 hover:underline mt-4 block w-full"
+            >
+              Kodu tekrar gönder
+            </button>
+          </form>
+        )}
       </div>
     );
   }

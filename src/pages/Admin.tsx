@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store';
-import { ShieldAlert, CheckCircle, XCircle, Users, PlaySquare, Wallet, Trash2, Plus, Minus, ShieldCheck, Bell } from 'lucide-react';
+import { ShieldAlert, CheckCircle, XCircle, Users, PlaySquare, Wallet, Trash2, Plus, Minus, ShieldCheck, Bell, Settings, Ban, Check, Edit2 } from 'lucide-react';
 
 export function Admin() {
   const { user } = useAuthStore();
@@ -10,7 +10,19 @@ export function Admin() {
   const [users, setUsers] = useState<any[]>([]);
   const [kycDocs, setKycDocs] = useState<any[]>([]);
   const [levels, setLevels] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [campaignSettings, setCampaignSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  
+  // User Management Modal state
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [userFormData, setUserFormData] = useState({
+    role: 'user',
+    is_banned: 0,
+    is_verified: 0,
+    available_credits: 0
+  });
   
   // Notification state
   const [showNotificationModal, setShowNotificationModal] = useState(false);
@@ -39,13 +51,15 @@ export function Admin() {
 
   const fetchData = async () => {
     setLoading(true);
-    const [statsRes, adsRes, withRes, usersRes, kycRes, levelsRes] = await Promise.all([
+    const [statsRes, adsRes, withRes, usersRes, kycRes, levelsRes, transactionsRes, settingsRes] = await Promise.all([
       fetch('/api/stats').then(r => r.json()),
       fetch('/api/admin/ads').then(r => r.json()),
       fetch('/api/admin/withdrawals').then(r => r.json()),
       fetch('/api/admin/users').then(r => r.json()),
-      fetch('/api/admin/kyc').then(r => r.json()),
-      fetch('/api/admin/levels').then(r => r.json())
+      fetch('/api/admin/kyc').then(r => r.json()).catch(() => []), // Ignore if endpoint removed
+      fetch('/api/admin/levels').then(r => r.json()),
+      fetch('/api/admin/transactions').then(r => r.json()),
+      fetch('/api/campaign-settings').then(r => r.json())
     ]);
     setStats(statsRes);
     setAds(adsRes);
@@ -53,6 +67,8 @@ export function Admin() {
     setUsers(usersRes);
     setKycDocs(kycRes);
     setLevels(levelsRes);
+    setTransactions(transactionsRes);
+    setCampaignSettings(settingsRes);
     setLoading(false);
   };
 
@@ -94,6 +110,62 @@ export function Admin() {
       body: JSON.stringify({ amount: val, type })
     });
     fetchData();
+  };
+
+  const openUserModal = (u: any) => {
+    setSelectedUser(u);
+    setUserFormData({
+      role: u.role,
+      is_banned: u.is_banned || 0,
+      is_verified: u.is_verified || 0,
+      available_credits: u.available_credits
+    });
+    setShowUserModal(true);
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser) return;
+    
+    try {
+      const res = await fetch(`/api/admin/users/${selectedUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userFormData)
+      });
+      
+      if (res.ok) {
+        alert('Kullanıcı başarıyla güncellendi!');
+        setShowUserModal(false);
+        fetchData();
+      } else {
+        alert('Kullanıcı güncellenirken bir hata oluştu.');
+      }
+    } catch (error) {
+      console.error('Failed to update user', error);
+      alert('Kullanıcı güncellenirken bir hata oluştu.');
+    }
+  };
+
+  const handleDeleteUser = async (id: number) => {
+    if (!confirm('Bu kullanıcıyı ve tüm verilerini (reklamlar, tıklamalar, bakiyeler) silmek istediğinize emin misiniz? Bu işlem geri alınamaz!')) return;
+    
+    try {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: 'DELETE'
+      });
+      
+      if (res.ok) {
+        alert('Kullanıcı başarıyla silindi!');
+        setShowUserModal(false);
+        fetchData();
+      } else {
+        alert('Kullanıcı silinirken bir hata oluştu.');
+      }
+    } catch (error) {
+      console.error('Failed to delete user', error);
+      alert('Kullanıcı silinirken bir hata oluştu.');
+    }
   };
 
   const updateKycStatus = async (id: number, status: string) => {
@@ -347,11 +419,8 @@ export function Admin() {
                     </td>
                     <td className="p-4 font-bold text-emerald-600">{u.available_credits.toFixed(2)}</td>
                     <td className="p-4 flex gap-2 justify-end">
-                      <button onClick={() => updateUserCredits(u.id, 0, 'add')} className="p-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200" title="Kredi Ekle">
-                        <Plus className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => updateUserCredits(u.id, 0, 'subtract')} className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200" title="Kredi Çıkar">
-                        <Minus className="w-4 h-4" />
+                      <button onClick={() => openUserModal(u)} className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 flex items-center gap-2 text-xs font-bold transition-colors" title="Yönet">
+                        <Settings className="w-4 h-4" /> Yönet
                       </button>
                     </td>
                   </tr>
@@ -515,6 +584,171 @@ export function Admin() {
           </div>
         </div>
       </div>
+
+      {/* Campaign Settings */}
+      {campaignSettings && (
+        <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 overflow-hidden mt-8">
+          <div className="p-6 border-b border-zinc-100 bg-zinc-50 flex items-center gap-3">
+            <Settings className="w-6 h-6 text-emerald-600" />
+            <div>
+              <h2 className="text-xl font-bold text-zinc-900">Kampanya Ayarları</h2>
+              <p className="text-sm text-zinc-500 mt-1">Reklam verenler için bütçe ve indirim kuralları</p>
+            </div>
+          </div>
+          <form 
+            className="p-6 space-y-6"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                await fetch('/api/admin/campaign-settings', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(campaignSettings)
+                });
+                alert('Ayarlar başarıyla kaydedildi.');
+              } catch (err) {
+                alert('Ayarlar kaydedilirken bir hata oluştu.');
+              }
+            }}
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">Tıklama Başı Kredi (CPC)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={campaignSettings.cpc}
+                  onChange={(e) => setCampaignSettings({...campaignSettings, cpc: parseFloat(e.target.value)})}
+                  className="w-full px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+              
+              <div className="col-span-1 md:col-span-2 lg:col-span-3">
+                <h3 className="font-bold text-zinc-900 border-b border-zinc-100 pb-2 mb-4 mt-2">Bütçe Bonusu (Ekstra Tıklama)</h3>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">Her X Kredide (Adım)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={campaignSettings.budget_bonus_step}
+                  onChange={(e) => setCampaignSettings({...campaignSettings, budget_bonus_step: parseInt(e.target.value)})}
+                  className="w-full px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">Bonus Oranı (%)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={campaignSettings.budget_bonus_rate}
+                  onChange={(e) => setCampaignSettings({...campaignSettings, budget_bonus_rate: parseFloat(e.target.value)})}
+                  className="w-full px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+
+              <div className="col-span-1 md:col-span-2 lg:col-span-3">
+                <h3 className="font-bold text-zinc-900 border-b border-zinc-100 pb-2 mb-4 mt-2">Süre İndirimi</h3>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">Her X Günde (Adım)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={campaignSettings.duration_discount_step}
+                  onChange={(e) => setCampaignSettings({...campaignSettings, duration_discount_step: parseInt(e.target.value)})}
+                  className="w-full px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">İndirim Oranı (%)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={campaignSettings.duration_discount_rate}
+                  onChange={(e) => setCampaignSettings({...campaignSettings, duration_discount_rate: parseFloat(e.target.value)})}
+                  className="w-full px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+
+              <div className="col-span-1 md:col-span-2 lg:col-span-3">
+                <h3 className="font-bold text-zinc-900 border-b border-zinc-100 pb-2 mb-4 mt-2">Gösterim (Erişim) Ayarları</h3>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">Gösterim Çarpanı</label>
+                <p className="text-xs text-zinc-500 mb-2">1 Tıklama = X Gösterim</p>
+                <input
+                  type="number"
+                  min="1"
+                  value={campaignSettings.impression_multiplier || 10}
+                  onChange={(e) => setCampaignSettings({...campaignSettings, impression_multiplier: parseInt(e.target.value)})}
+                  className="w-full px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+            </div>
+            
+            <div className="flex justify-end pt-4 border-t border-zinc-100">
+              <button
+                type="submit"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-xl font-bold transition-colors"
+              >
+                Ayarları Kaydet
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* All Transactions */}
+      <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 overflow-hidden">
+        <div className="p-6 border-b border-zinc-100 bg-zinc-50">
+          <h2 className="text-xl font-bold text-zinc-900">Tüm İşlemler</h2>
+          <p className="text-sm text-zinc-500 mt-1">Sistemdeki tüm kredi hareketleri</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-zinc-50 text-zinc-500 border-b border-zinc-100">
+              <tr>
+                <th className="p-4 font-medium">Tarih</th>
+                <th className="p-4 font-medium">Kullanıcı</th>
+                <th className="p-4 font-medium">İşlem Tipi</th>
+                <th className="p-4 font-medium">Açıklama</th>
+                <th className="p-4 font-medium text-right">Miktar</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100">
+              {transactions.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-zinc-500">İşlem bulunamadı.</td>
+                </tr>
+              ) : (
+                transactions.map((t, idx) => (
+                  <tr key={idx} className="hover:bg-zinc-50/50">
+                    <td className="p-4 text-zinc-500">{new Date(t.created_at).toLocaleString('tr-TR')}</td>
+                    <td className="p-4 font-medium text-zinc-900">{t.username} <span className="text-xs text-zinc-400 block">{t.email}</span></td>
+                    <td className="p-4">
+                      <span className="px-2 py-1 rounded-md text-xs font-medium bg-zinc-100 text-zinc-700">
+                        {t.type}
+                      </span>
+                    </td>
+                    <td className="p-4 text-zinc-600">{t.description}</td>
+                    <td className={`p-4 font-bold text-right ${t.amount > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {t.amount > 0 ? '+' : ''}{t.amount.toFixed(2)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Notification Modal */}
       {showNotificationModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -686,6 +920,110 @@ export function Admin() {
                 >
                   {addingIframe ? 'Ekleniyor...' : 'Ekle'}
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* User Management Modal */}
+      {showUserModal && selectedUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-xl">
+            <div className="p-6 border-b border-zinc-100 flex items-center justify-between bg-zinc-50">
+              <h3 className="text-lg font-bold text-zinc-900 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-blue-600" />
+                Kullanıcı Yönetimi: {selectedUser.username}
+              </h3>
+              <button 
+                onClick={() => setShowUserModal(false)}
+                className="text-zinc-400 hover:text-zinc-600"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            <form onSubmit={handleUpdateUser} className="p-6 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 mb-1">Rol</label>
+                  <select
+                    value={userFormData.role}
+                    onChange={(e) => setUserFormData({...userFormData, role: e.target.value})}
+                    className="w-full px-4 py-2 rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  >
+                    <option value="user">Kullanıcı</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 mb-1">Bakiye (Kredi)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={userFormData.available_credits}
+                    onChange={(e) => setUserFormData({...userFormData, available_credits: parseFloat(e.target.value)})}
+                    className="w-full px-4 py-2 rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="flex items-center gap-3 p-3 rounded-xl border border-zinc-200 cursor-pointer hover:bg-zinc-50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={userFormData.is_verified === 1}
+                    onChange={(e) => setUserFormData({...userFormData, is_verified: e.target.checked ? 1 : 0})}
+                    className="w-5 h-5 text-emerald-600 rounded border-zinc-300 focus:ring-emerald-500"
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-zinc-900 flex items-center gap-2">
+                      <Check className="w-4 h-4 text-emerald-600" />
+                      Doğrulanmış Kullanıcı (KYC)
+                    </span>
+                    <span className="text-xs text-zinc-500">Kullanıcıyı manuel olarak doğrulanmış olarak işaretle.</span>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-xl border border-red-200 bg-red-50/50 cursor-pointer hover:bg-red-50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={userFormData.is_banned === 1}
+                    onChange={(e) => setUserFormData({...userFormData, is_banned: e.target.checked ? 1 : 0})}
+                    className="w-5 h-5 text-red-600 rounded border-red-300 focus:ring-red-500"
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-red-900 flex items-center gap-2">
+                      <Ban className="w-4 h-4 text-red-600" />
+                      Hesabı Yasakla (Ban)
+                    </span>
+                    <span className="text-xs text-red-700/70">Kullanıcının sisteme giriş yapmasını engeller.</span>
+                  </div>
+                </label>
+              </div>
+
+              <div className="pt-4 border-t border-zinc-100 flex flex-col sm:flex-row justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleDeleteUser(selectedUser.id)}
+                  className="px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors flex items-center justify-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" /> Kullanıcıyı Sil
+                </button>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowUserModal(false)}
+                    className="px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 rounded-xl transition-colors flex-1 sm:flex-none"
+                  >
+                    İptal
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center justify-center gap-2 flex-1 sm:flex-none"
+                  >
+                    <CheckCircle className="w-4 h-4" /> Kaydet
+                  </button>
+                </div>
               </div>
             </form>
           </div>

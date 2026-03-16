@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { Home, PlaySquare, PlusCircle, Wallet, Settings, LogOut, ShieldAlert, Users, ShieldCheck, Globe, Bell } from 'lucide-react';
+import { Home, PlaySquare, PlusCircle, Wallet, Settings, LogOut, ShieldAlert, Users, ShieldCheck, Globe, Bell, FileText } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useTranslation } from 'react-i18next';
@@ -38,8 +38,8 @@ export function Layout() {
     { name: t('nav.ads'), path: '/ads', icon: PlaySquare },
     { name: t('nav.campaigns'), path: '/campaigns', icon: PlusCircle },
     { name: t('nav.withdraw'), path: '/withdraw', icon: Wallet },
+    { name: 'İşlem Geçmişi', path: '/transactions', icon: FileText },
     { name: t('nav.referrals'), path: '/referrals', icon: Users },
-    { name: t('nav.kyc'), path: '/kyc', icon: ShieldCheck },
     { name: 'Bildirimler', path: '/notifications', icon: Bell, badge: unreadCount },
     { name: t('nav.settings'), path: '/settings', icon: Settings },
   ];

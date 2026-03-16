@@ -11,7 +11,6 @@ const resources = {
         campaigns: 'Kampanyalar',
         withdraw: 'Para Çek',
         referrals: 'Davet Et',
-        kyc: 'KYC Onayı',
         settings: 'Ayarlar',
         admin: 'Admin Paneli',
         logout: 'Çıkış Yap'
@@ -48,7 +47,6 @@ const resources = {
         campaigns: 'Campaigns',
         withdraw: 'Withdraw',
         referrals: 'Referrals',
-        kyc: 'KYC',
         settings: 'Settings',
         admin: 'Admin Panel',
         logout: 'Logout'
@@ -85,7 +83,6 @@ const resources = {
         campaigns: 'الحملات',
         withdraw: 'سحب',
         referrals: 'الإحالات',
-        kyc: 'التحقق من الهوية',
         settings: 'الإعدادات',
         admin: 'لوحة الإدارة',
         logout: 'تسجيل خروج'
@@ -122,7 +119,6 @@ const resources = {
         campaigns: 'Кампании',
         withdraw: 'Вывод',
         referrals: 'Рефералы',
-        kyc: 'KYC',
         settings: 'Настройки',
         admin: 'Админ-панель',
         logout: 'Выйти'

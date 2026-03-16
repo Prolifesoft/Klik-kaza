@@ -13,10 +13,10 @@ import { Dashboard } from './pages/Dashboard';
 import { Ads } from './pages/Ads';
 import { Campaigns } from './pages/Campaigns';
 import { Withdraw } from './pages/Withdraw';
+import { Transactions } from './pages/Transactions';
 import { Admin } from './pages/Admin';
 import { Settings } from './pages/Settings';
 import { Referrals } from './pages/Referrals';
-import { Kyc } from './pages/Kyc';
 import { Notifications } from './pages/Notifications';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -37,8 +37,8 @@ export default function App() {
           <Route path="ads" element={<Ads />} />
           <Route path="campaigns" element={<Campaigns />} />
           <Route path="withdraw" element={<Withdraw />} />
+          <Route path="transactions" element={<Transactions />} />
           <Route path="referrals" element={<Referrals />} />
-          <Route path="kyc" element={<Kyc />} />
           <Route path="notifications" element={<Notifications />} />
           <Route path="settings" element={<Settings />} />
           <Route path="admin" element={<Admin />} />

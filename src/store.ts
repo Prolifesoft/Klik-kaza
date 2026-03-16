@@ -12,7 +12,8 @@ interface User {
   daily_click_limit: number;
   tron_wallet: string | null;
   referral_code: string | null;
-  kyc_status: 'unverified' | 'pending' | 'approved' | 'rejected';
+  is_banned?: number;
+  is_verified?: number;
   total_clicks: number;
   today_clicks?: number;
   level_info?: {
